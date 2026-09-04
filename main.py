@@ -32,7 +32,7 @@ def write_candidates(items, output: str):
         for item in items:
             f.write(item + "\n")
             count += 1
-    print(f"Generated {count:,} candidates -> {path}")
+    print(f"\nGenerated {count:,} candidates -> {path}\n")
 
 
 def filter_words(input_path: str, min_length: int, max_length: int):
@@ -82,7 +82,7 @@ def check_username(username: str, session: requests.Session):
     template = os.getenv("CHECK_URL_TEMPLATE", "").strip()
     if not template:
         raise RuntimeError(
-            "CHECK_URL_TEMPLATE is not configured. Use only an OGU endpoint you are authorized to query."
+            "CHECK_URL_TEMPLATE is not configured. Add an authorized OGU availability endpoint first."
         )
 
     url = template.format(username=username)
@@ -109,7 +109,6 @@ def run_checker(input_path: str, output_path: str):
     output = Path(output_path)
     checked = load_already_checked(output)
     new_file = not output.exists()
-
     session = requests.Session()
 
     with open(input_path, "r", encoding="utf-8") as source, output.open(
@@ -130,7 +129,7 @@ def run_checker(input_path: str, output_path: str):
                 status, http_status = "error", ""
                 print(f"[error] {username}: {exc}")
             except RuntimeError as exc:
-                print(exc)
+                print(f"\n{exc}\n")
                 return
 
             writer.writerow([username, status, http_status])
@@ -139,15 +138,63 @@ def run_checker(input_path: str, output_path: str):
             print(f"[{status}] @{username} ({http_status})")
 
             if status == "rate_limited":
-                print("Rate limit detected; stopping safely. Increase DELAY_SECONDS before retrying.")
+                print("Rate limit detected; stopping safely.")
                 return
 
             time.sleep(delay)
 
 
+def interactive_menu():
+    while True:
+        print("=" * 48)
+        print("           OGU USER CHECKER")
+        print("=" * 48)
+        print("1. Generate usernames")
+        print("2. Check generated usernames")
+        print("3. Show candidate count")
+        print("4. Exit")
+        print()
+
+        choice = input("Choose an option: ").strip()
+
+        if choice == "1":
+            print("\nPattern examples:")
+            print("  LLL = 3 letters")
+            print("  LLN = 2 letters + 1 number")
+            print("  L_L = letter + underscore + letter")
+            print("  L.L = letter + dot + letter")
+            pattern = input("Pattern: ").strip()
+            if not pattern:
+                print("No pattern entered.\n")
+                continue
+            write_candidates(expand_pattern(pattern), "candidates.txt")
+
+        elif choice == "2":
+            if not Path("candidates.txt").exists():
+                print("\nNo candidates.txt yet. Generate usernames first.\n")
+                continue
+            print()
+            run_checker("candidates.txt", "results.csv")
+
+        elif choice == "3":
+            path = Path("candidates.txt")
+            if not path.exists():
+                print("\nNo candidates generated yet.\n")
+            else:
+                with path.open("r", encoding="utf-8") as f:
+                    count = sum(1 for line in f if line.strip())
+                print(f"\n{count:,} candidates in candidates.txt\n")
+
+        elif choice == "4":
+            print("Bye.")
+            return
+        else:
+            print("\nInvalid choice.\n")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Configurable username generator/checker")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     generate = sub.add_parser("generate", help="Generate usernames from a pattern")
     generate.add_argument("--pattern", required=True, help="L=letter, N=number; other chars are literal")
@@ -170,7 +217,9 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command == "generate":
+    if args.command is None:
+        interactive_menu()
+    elif args.command == "generate":
         write_candidates(expand_pattern(args.pattern), args.output)
     elif args.command == "words":
         if args.min_length < 1 or args.max_length < args.min_length:
